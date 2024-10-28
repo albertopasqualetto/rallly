@@ -3,6 +3,9 @@
     "source.fixAll": "explicit"
   },
   "typescript.tsdk": "node_modules/typescript/lib",
-  "typescript.preferences.importModuleSpecifier": "non-relative",
-  "cSpell.words": ["Rallly", "Vella"]
+  "typescript.preferences.importModuleSpecifier": "shortest",
+  "cSpell.words": ["Rallly", "Vella"],
+  "jestrunner.codeLensSelector": "",
+  "vitest.filesWatcherInclude": "**/*.test.ts",
+  "biome.enabled": false
 }
