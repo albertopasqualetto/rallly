@@ -16,6 +16,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
+    "db:push": "prisma db push",
     "docker:up": "docker compose -f docker-compose.dev.yml up -d && wait-on --timeout 60000 tcp:localhost:5450",
     "docker:down": "docker compose -f docker-compose.dev.yml down --volumes --remove-orphans",
     "test:integration": "turbo test:integration",
@@ -37,7 +38,7 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@prisma/client": "^6.0.1",
+    "@prisma/client": "^6.4.1",
     "@sentry/nextjs": "^8.49.0",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",

@@ -7,6 +7,7 @@ datasource db {
 generator client {
   provider      = "prisma-client-js"
   binaryTargets = ["native"]
+  previewFeatures = ["relationJoins"]
 }
 
 enum TimeFormat {
@@ -49,26 +50,28 @@ model User {
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime?   @updatedAt @map("updated_at")
   customerId     String?     @map("customer_id")
-  subscriptionId String?     @unique @map("subscription_id")
 
-  comments     Comment[]
-  polls        Poll[]
-  watcher      Watcher[]
-  events       Event[]
-  accounts     Account[]
-  participants Participant[]
-
-  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  comments       Comment[]
+  polls          Poll[]
+  watcher        Watcher[]
+  events         Event[]
+  accounts       Account[]
+  participants   Participant[]
+  paymentMethods PaymentMethod[]
+  subscription   Subscription? @relation("UserToSubscription")
 
   @@map("users")
 }
 
 enum SubscriptionStatus {
+  incomplete
+  incomplete_expired
   active
   paused
-  deleted
   trialing
   past_due
+  canceled
+  unpaid
 
   @@map("subscription_status")
 }
@@ -82,23 +85,24 @@ enum SubscriptionInterval {
   @@map("subscription_interval")
 }
 
-model UserPaymentData {
-  userId         String             @id @map("user_id")
-  subscriptionId String             @map("subscription_id")
-  planId         String             @map("plan_id")
-  endDate        DateTime           @map("end_date")
-  status         SubscriptionStatus
-  updateUrl      String             @map("update_url")
-  cancelUrl      String             @map("cancel_url")
+model PaymentMethod {
+  id        String   @id
+  userId    String   @map("user_id")
+  type      String
+  data      Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@map("user_payment_data")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("payment_methods")
 }
 
 model Subscription {
   id                String               @id
   priceId           String               @map("price_id")
   amount            Int
-  status            String
+  status            SubscriptionStatus
   active            Boolean
   currency          String
   interval          SubscriptionInterval
@@ -106,8 +110,9 @@ model Subscription {
   periodStart       DateTime             @map("period_start")
   periodEnd         DateTime             @map("period_end")
   cancelAtPeriodEnd Boolean              @default(false) @map("cancel_at_period_end")
+  userId            String               @unique @map("user_id")
 
-  user User?
+  user User @relation("UserToSubscription", fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("subscriptions")
 }
