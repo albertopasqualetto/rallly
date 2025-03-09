@@ -105,7 +105,6 @@ export const participants = router({
       return participants;
     }),
   delete: publicProcedure
-    .use(createRateLimitMiddleware(20, "1 m"))
     .input(
       z.object({
         participantId: z.string(),
@@ -123,7 +122,7 @@ export const participants = router({
       });
     }),
   add: publicProcedure
-    .use(createRateLimitMiddleware(20, "1 m"))
+    .use(createRateLimitMiddleware("add_participant", 5, "1 m"))
     .use(requireUserMiddleware)
     .input(
       z.object({
@@ -174,8 +173,23 @@ export const participants = router({
           },
         });
 
+        const options = await prisma.option.findMany({
+          where: {
+            pollId,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        const existingOptionIds = new Set(options.map((option) => option.id));
+
+        const validVotes = votes.filter(({ optionId }) =>
+          existingOptionIds.has(optionId),
+        );
+
         await prisma.vote.createMany({
-          data: votes.map(({ optionId, type }) => ({
+          data: validVotes.map(({ optionId, type }) => ({
             optionId,
             type,
             pollId,
@@ -218,7 +232,6 @@ export const participants = router({
       return participant;
     }),
   rename: publicProcedure
-    .use(createRateLimitMiddleware(20, "1 m"))
     .input(z.object({ participantId: z.string(), newName: z.string() }))
     .mutation(async ({ input: { participantId, newName } }) => {
       await prisma.participant.update({
@@ -232,7 +245,6 @@ export const participants = router({
       });
     }),
   update: publicProcedure
-    .use(createRateLimitMiddleware(20, "1 m"))
     .input(
       z.object({
         pollId: z.string(),
@@ -255,9 +267,24 @@ export const participants = router({
           },
         });
 
+        const options = await prisma.option.findMany({
+          where: {
+            pollId,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        const existingOptionIds = new Set(options.map((option) => option.id));
+
+        const validVotes = votes.filter(({ optionId }) =>
+          existingOptionIds.has(optionId),
+        );
+
         // Create new votes
         await tx.vote.createMany({
-          data: votes.map(({ optionId, type }) => ({
+          data: validVotes.map(({ optionId, type }) => ({
             optionId,
             type,
             pollId,

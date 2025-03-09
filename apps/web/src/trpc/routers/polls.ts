@@ -8,6 +8,7 @@ import dayjs from "dayjs";
 import * as ics from "ics";
 import { z } from "zod";
 
+import { moderateContent } from "@/features/moderation";
 import { getEmailClient } from "@/utils/emails";
 
 import { getTimeZoneAbbreviation } from "../../utils/date";
@@ -130,8 +131,6 @@ export const polls = router({
 
   // START LEGACY ROUTES
   create: possiblyPublicProcedure
-    .use(createRateLimitMiddleware(20, "1 h"))
-    .use(requireUserMiddleware)
     .input(
       z.object({
         title: z.string().trim().min(1),
@@ -148,9 +147,33 @@ export const polls = router({
             endDate: z.string().optional(),
           })
           .array(),
-        demo: z.boolean().optional(),
       }),
     )
+    .use(requireUserMiddleware)
+    .use(createRateLimitMiddleware("create_poll", 10, "1 h"))
+    .use(async ({ ctx, input, next }) => {
+      const isFlaggedContent = await moderateContent([
+        input.title,
+        input.description,
+        input.location,
+      ]);
+
+      if (isFlaggedContent) {
+        posthog?.capture({
+          distinctId: ctx.user.id,
+          event: "flagged_content",
+          properties: {
+            action: "create_poll",
+          },
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Inappropriate content",
+        });
+      }
+
+      return next();
+    })
     .mutation(async ({ ctx, input }) => {
       const adminToken = nanoid();
       const participantUrlId = nanoid();
@@ -233,7 +256,6 @@ export const polls = router({
       return { id: poll.id };
     }),
   update: possiblyPublicProcedure
-    .use(createRateLimitMiddleware(60, "1 h"))
     .input(
       z.object({
         urlId: z.string(),
@@ -250,6 +272,31 @@ export const polls = router({
         requireParticipantEmail: z.boolean().optional(),
       }),
     )
+    .use(requireUserMiddleware)
+    .use(createRateLimitMiddleware("update_poll", 5, "1 m"))
+    .use(async ({ ctx, input, next }) => {
+      const isFlaggedContent = await moderateContent([
+        input.title,
+        input.description,
+        input.location,
+      ]);
+
+      if (isFlaggedContent) {
+        posthog?.capture({
+          distinctId: ctx.user.id,
+          event: "flagged_content",
+          properties: {
+            action: "update_poll",
+          },
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Inappropriate content",
+        });
+      }
+
+      return next();
+    })
     .mutation(async ({ input }) => {
       const pollId = await getPollIdFromAdminUrlId(input.urlId);
 
@@ -306,7 +353,6 @@ export const polls = router({
       });
     }),
   delete: possiblyPublicProcedure
-    .use(createRateLimitMiddleware(30, "1 h"))
     .input(
       z.object({
         urlId: z.string(),
@@ -417,7 +463,15 @@ export const polls = router({
               startTime: "asc",
             },
           },
-          user: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              banned: true,
+            },
+          },
           userId: true,
           guestId: true,
           deleted: true,

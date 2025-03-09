@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { isEmailBlocked } from "@/auth/helpers/is-email-blocked";
 import { mergeGuestsIntoUser } from "@/auth/helpers/merge-user";
+import { isTemporaryEmail } from "@/auth/helpers/temp-email-domains";
 import { getEmailClient } from "@/utils/emails";
 import { createToken, decryptToken } from "@/utils/session";
 
@@ -29,7 +30,7 @@ export const auth = router({
       return { isRegistered: count > 0 };
     }),
   requestRegistration: publicProcedure
-    .use(createRateLimitMiddleware(5, "1 m"))
+    .use(createRateLimitMiddleware("request_registration", 5, "1 m"))
     .input(
       z.object({
         name: z.string().min(1).max(100),
@@ -42,10 +43,20 @@ export const auth = router({
         ctx,
       }): Promise<
         | { ok: true; token: string }
-        | { ok: false; reason: "userAlreadyExists" | "emailNotAllowed" }
+        | {
+            ok: false;
+            reason:
+              | "userAlreadyExists"
+              | "emailNotAllowed"
+              | "temporaryEmailNotAllowed";
+          }
       > => {
         if (isEmailBlocked?.(input.email)) {
           return { ok: false, reason: "emailNotAllowed" };
+        }
+
+        if (isTemporaryEmail(input.email)) {
+          return { ok: false, reason: "temporaryEmailNotAllowed" };
         }
 
         const user = await prisma.user.findUnique({

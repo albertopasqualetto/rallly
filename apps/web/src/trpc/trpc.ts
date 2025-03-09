@@ -1,3 +1,5 @@
+import { prisma } from "@rallly/database";
+import { posthog } from "@rallly/posthog/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { Ratelimit } from "@upstash/ratelimit";
 import { kv } from "@vercel/kv";
@@ -47,6 +49,31 @@ export const requireUserMiddleware = middleware(async ({ ctx, next }) => {
     });
   }
 
+  if (!ctx.user.isGuest) {
+    const user = await prisma.user.findUnique({
+      where: {
+        id: ctx.user.id,
+      },
+      select: {
+        banned: true,
+      },
+    });
+
+    if (!user) {
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "Logged in user does not exist anymore",
+      });
+    }
+
+    if (user.banned) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Your account has been banned",
+      });
+    }
+  }
+
   return next({
     ctx: {
       user: ctx.user,
@@ -90,6 +117,7 @@ export const proProcedure = privateProcedure.use(async ({ ctx, next }) => {
 });
 
 export const createRateLimitMiddleware = (
+  name: string,
   requests: number,
   duration: "1 m" | "1 h",
 ) => {
@@ -98,20 +126,30 @@ export const createRateLimitMiddleware = (
       return next();
     }
 
-    if (!ctx.ip) {
+    if (!ctx.identifier) {
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
-        message: "Failed to get client IP",
+        message: "Failed to get identifier",
       });
     }
+
     const ratelimit = new Ratelimit({
       redis: kv,
       limiter: Ratelimit.slidingWindow(requests, duration),
     });
 
-    const res = await ratelimit.limit(ctx.ip);
+    const res = await ratelimit.limit(`${name}:${ctx.identifier}`);
 
     if (!res.success) {
+      posthog?.capture({
+        distinctId: ctx.user?.id ?? "system",
+        event: "ratelimit_exceeded",
+        properties: {
+          name,
+          requests,
+          duration,
+        },
+      });
       throw new TRPCError({
         code: "TOO_MANY_REQUESTS",
         message: "Too many requests",

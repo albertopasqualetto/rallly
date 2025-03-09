@@ -3,10 +3,11 @@ import { posthog } from "@rallly/posthog/server";
 import { redirect } from "next/navigation";
 import NextAuth from "next-auth";
 import type { Provider } from "next-auth/providers";
+import { cache } from "react";
 import z from "zod";
 
 import { CustomPrismaAdapter } from "./auth/adapters/prisma";
-import { isEmailBlocked } from "./auth/helpers/is-email-blocked";
+import { isEmailBanned, isEmailBlocked } from "./auth/helpers/is-email-blocked";
 import { mergeGuestsIntoUser } from "./auth/helpers/merge-user";
 import { getLegacySession } from "./auth/legacy/next-auth-cookie-migration";
 import { EmailProvider } from "./auth/providers/email";
@@ -55,6 +56,16 @@ const {
   session: {
     strategy: "jwt",
   },
+  jwt: {
+    maxAge: 60 * 60 * 24 * 60,
+  },
+  cookies: {
+    sessionToken: {
+      options: {
+        maxAge: 60 * 60 * 24 * 60,
+      },
+    },
+  },
   events: {
     signIn({ user, account }) {
       if (user.id) {
@@ -94,10 +105,14 @@ const {
         });
         return false;
       }
+
+      if (user.banned) {
+        return false;
+      }
+
       // Make sure email is allowed
       if (user.email) {
-        const isBlocked = isEmailBlocked(user.email);
-        if (isBlocked) {
+        if (isEmailBlocked(user.email) || (await isEmailBanned(user.email))) {
           return false;
         }
       }
@@ -132,8 +147,8 @@ const {
 
       return true;
     },
-    async jwt({ token, session, trigger }) {
-      if (trigger === "update") {
+    async jwt({ token, session }) {
+      if (session) {
         const parsed = sessionUpdateSchema.safeParse(session);
         if (parsed.success) {
           Object.entries(parsed.data).forEach(([key, value]) => {
@@ -158,12 +173,14 @@ const {
               timeFormat: true,
               timeZone: true,
               weekStart: true,
+              image: true,
             },
           });
 
           if (user) {
             token.name = user.name;
             token.email = user.email;
+            token.picture = user.image;
             token.locale = user.locale;
             token.timeFormat = user.timeFormat;
             token.timeZone = user.timeZone;
@@ -177,14 +194,14 @@ const {
   },
 });
 
-const auth = async () => {
+const auth = cache(async () => {
   const session = await originalAuth();
   if (session) {
     return session;
   }
 
   return getLegacySession();
-};
+});
 
 const requireUser = async () => {
   const session = await auth();

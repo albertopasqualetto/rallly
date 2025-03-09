@@ -1,5 +1,5 @@
 import { usePostHog } from "@rallly/posthog/client";
-import { signIn, useSession } from "next-auth/react";
+import { useToast } from "@rallly/ui/hooks/use-toast";
 
 import { usePoll } from "@/components/poll-context";
 import { trpc } from "@/trpc/client";
@@ -19,15 +19,7 @@ export const normalizeVotes = (
 export const useAddParticipantMutation = () => {
   const posthog = usePostHog();
   const queryClient = trpc.useUtils();
-  const session = useSession();
   return trpc.polls.participants.add.useMutation({
-    onMutate: async () => {
-      if (session.status !== "authenticated") {
-        await signIn("guest", {
-          redirect: false,
-        });
-      }
-    },
     onSuccess: async (newParticipant, input) => {
       const { pollId, name, email } = newParticipant;
       queryClient.polls.participants.list.setData(
@@ -101,11 +93,20 @@ export const useDeleteParticipantMutation = () => {
 
 export const useUpdatePollMutation = () => {
   const posthog = usePostHog();
+  const { toast } = useToast();
   return trpc.polls.update.useMutation({
     onSuccess: (_data, { urlId }) => {
       posthog?.capture("updated poll", {
         id: urlId,
       });
+    },
+    onError: (error) => {
+      if (error.data?.code === "BAD_REQUEST") {
+        toast({
+          title: "Error",
+          description: error.message,
+        });
+      }
     },
   });
 };
